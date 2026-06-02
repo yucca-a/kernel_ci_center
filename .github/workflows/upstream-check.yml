@@ -30,14 +30,22 @@ jobs:
           )
           report=""; updated=0
           for br in gki-android13-5.15 gki-android14-6.1 gki-android15-6.6; do
-            head=$(git ls-remote https://github.com/ShirkNeko/susfs4ksu.git "refs/heads/$br" | cut -f1)
             pin="${PIN[$br]}"
-            if [ -n "$head" ] && [ "$head" != "$pin" ]; then
-              report="${report}- SUSFS \`$br\`: HEAD \`${head:0:12}\` vs pinned \`${pin:0:12}\` — **UPDATE AVAILABLE**"$'\n'
-              updated=1
-            else
-              report="${report}- SUSFS \`$br\`: up to date (\`${pin:0:12}\`)"$'\n'
-            fi
+            # Compare our pin (base) vs the branch tip (head). status "ahead" means
+            # the branch has commits we don't -> a real update; "diverged" means
+            # both moved (review); "identical"/"behind" -> our pin is fine.
+            line=$(gh api "repos/ShirkNeko/susfs4ksu/compare/${pin}...${br}" \
+                     --jq '.status + " " + (.ahead_by|tostring)' 2>/dev/null || echo "error 0")
+            status="${line%% *}"; ahead="${line##* }"
+            case "$status" in
+              ahead|diverged)
+                report="${report}- SUSFS \`$br\`: branch is **${status}** by ${ahead} commit(s) vs pin \`${pin:0:12}\` — **UPDATE AVAILABLE**"$'\n'
+                updated=1 ;;
+              identical|behind)
+                report="${report}- SUSFS \`$br\`: pin current (${status})"$'\n' ;;
+              *)
+                report="${report}- SUSFS \`$br\`: compare error (skipped)"$'\n' ;;
+            esac
           done
           ksu=$(git ls-remote https://github.com/ReSukiSU/ReSukiSU.git refs/heads/main | cut -f1)
           report="${report}- ReSukiSU \`main\`: \`${ksu:0:12}\` (tracked at build time — auto-latest)"$'\n'
