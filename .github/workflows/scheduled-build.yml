@@ -1,0 +1,48 @@
+name: scheduled-build
+# Weekly full auto-build of every enabled device x mode, published as Releases.
+# Each run picks up the latest ReSukiSU (setup.sh tracks main) and AnyKernel3
+# (s25 branch HEAD) automatically; SUSFS stays pinned for reproducibility.
+on:
+  schedule:
+    - cron: '0 18 * * 0'   # Sundays 18:00 UTC
+  workflow_dispatch: {}     # allow a manual full-matrix run too
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [sm8550, sm8650, sm8750]
+        mode: [resukisu, lkm]
+    steps:
+      - name: Checkout CI center
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev zstd cpio kmod
+
+      - name: Configure git auth for the private kernel repos
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ secrets.RELEASE_TOKEN }}@github.com/".insteadOf \
+            "git@github.com:"
+
+      - name: Build orchestrator
+        run: cargo build --release
+
+      - name: Build kernel (${{ matrix.device }} / ${{ matrix.mode }})
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          ./target/release/kci build \
+            --device "${{ matrix.device }}" \
+            --mode "${{ matrix.mode }}" \
+            --release
