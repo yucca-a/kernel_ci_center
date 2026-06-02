@@ -41,12 +41,12 @@ anykernel_repo   = "https://github.com/fei-ke/AnyKernel3.git"
 anykernel_branch = "s25"
 
 [device.toolchain]
-# android13-5.15 builds fine with the newer sm8750 clang-r510928 prebuilts
-# (a newer clang compiles the older kernel, same as sm8650); reuse them so
-# there is a single hosted toolchain. The sm8550 build.sh honours the
-# CI-provided TOOLCHAIN_DIR and skips its own clang-r450784e download.
-local_path = "/home/yucca/work/kernel_sm8750/toolchain_samsung_sm8750/kernel_platform/prebuilts"
-url        = "https://github.com/yucca-a/sm8750-toolchain/releases/download/clang-r510928/sm8750-toolchain-clang-r510928.tar.zst"
+# sm8550 (android13-5.15) needs Samsung's own clang-r450784e -- the shared sm8750
+# clang-r510928 compiles but produces a non-booting image. Our own clean
+# repackaging is hosted at yucca-a/sm8550-toolchain (the only other source is the
+# YuzakiKokuban fork's macOS-packaged 3-part split). The tarball root is the
+# prebuilts dir; sm8550 build.sh uses the exported TOOLCHAIN_DIR.
+url = "https://github.com/yucca-a/sm8550-toolchain/releases/download/clang-r450784e/sm8550-toolchain-clang-r450784e.tar.xz"
 
 # ---------------------------------------------------------------------------
 # Galaxy S24 — sm8650 — android14-6.1 — not built yet (placeholder)
