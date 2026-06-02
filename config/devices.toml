@@ -1,0 +1,69 @@
+# Yucca kernel CI — device table.
+# Each device points at a kernel repo whose `build_script` does the actual
+# feature application + make (invoked as: bash <build_script> <mode>).
+
+[defaults]
+kmi_generation = 8        # android15-6.6 == KMI gen 8 (sm8750)
+
+# ---------------------------------------------------------------------------
+# Galaxy S25 — sm8750 — android15-6.6 — READY
+# ---------------------------------------------------------------------------
+[[device]]
+id            = "sm8750"
+name          = "Galaxy S25"
+enabled       = true
+repo          = "git@github.com:yucca-a/kernel_samsung_sm8750.git"
+branch        = "main"
+build_script  = "build/build.sh"
+modes         = ["resukisu", "lkm"]
+anykernel_repo   = "https://github.com/fei-ke/AnyKernel3.git"
+anykernel_branch = "s25"
+
+[device.toolchain]
+# Local runs use local_path if it exists; cloud runners fall through to url.
+# The url tarball's root IS the prebuilts dir (clang/, kernel-build-tools/, gcc/),
+# so no subdir is needed.
+local_path = "/home/yucca/work/kernel_sm8750/toolchain_samsung_sm8750/kernel_platform/prebuilts"
+url        = "https://github.com/yucca-a/sm8750-toolchain/releases/download/clang-r510928/sm8750-toolchain-clang-r510928.tar.zst"
+
+# ---------------------------------------------------------------------------
+# Galaxy S23 — sm8550 — android13-5.15 — READY
+# ---------------------------------------------------------------------------
+[[device]]
+id            = "sm8550"
+name          = "Galaxy S23"
+enabled       = true
+repo          = "git@github.com:yucca-a/kernel_samsung_sm8550.git"
+branch        = "main"
+build_script  = "scripts/build/build.sh"
+modes         = ["resukisu", "lkm"]
+anykernel_repo   = "https://github.com/fei-ke/AnyKernel3.git"
+anykernel_branch = "s25"
+
+[device.toolchain]
+# android13-5.15 builds fine with the newer sm8750 clang-r510928 prebuilts
+# (a newer clang compiles the older kernel, same as sm8650); reuse them so
+# there is a single hosted toolchain. The sm8550 build.sh honours the
+# CI-provided TOOLCHAIN_DIR and skips its own clang-r450784e download.
+local_path = "/home/yucca/work/kernel_sm8750/toolchain_samsung_sm8750/kernel_platform/prebuilts"
+url        = "https://github.com/yucca-a/sm8750-toolchain/releases/download/clang-r510928/sm8750-toolchain-clang-r510928.tar.zst"
+
+# ---------------------------------------------------------------------------
+# Galaxy S24 — sm8650 — android14-6.1 — not built yet (placeholder)
+# ---------------------------------------------------------------------------
+[[device]]
+id            = "sm8650"
+name          = "Galaxy S24"
+enabled       = true
+repo          = "git@github.com:yucca-a/kernel_samsung_sm8650.git"
+branch        = "main"
+build_script  = "build/build.sh"
+modes         = ["resukisu", "lkm"]
+anykernel_repo   = "https://github.com/fei-ke/AnyKernel3.git"
+anykernel_branch = "s25"
+
+[device.toolchain]
+# android14-6.1 builds fine with the sm8750 clang-r510928 prebuilts (a newer
+# clang compiles the older kernel); reuse them instead of a separate download.
+local_path = "/home/yucca/work/kernel_sm8750/toolchain_samsung_sm8750/kernel_platform/prebuilts"
+url        = "https://github.com/yucca-a/sm8750-toolchain/releases/download/clang-r510928/sm8750-toolchain-clang-r510928.tar.zst"

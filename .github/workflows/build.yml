@@ -1,0 +1,59 @@
+name: build-kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Device id (must be enabled in config/devices.toml)"
+        type: choice
+        options: [sm8750, sm8550, sm8650]
+        default: sm8750
+      release:
+        description: "Publish zips as a GitHub Release"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [resukisu, lkm]   # resukisu + lkm matrix
+    steps:
+      - name: Checkout CI center
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev zstd cpio kmod
+
+      - name: Configure git auth for the private kernel repos
+        run: |
+          # A per-repo SSH deploy key can only unlock one repo; the kernel repos
+          # (sm8750/sm8650/...) share one workflow secret, so authenticate over
+          # HTTPS with the account-level RELEASE_TOKEN instead. This rewrites the
+          # git@github.com: clone URLs in devices.toml to token-bearing HTTPS.
+          git config --global \
+            url."https://x-access-token:${{ secrets.RELEASE_TOKEN }}@github.com/".insteadOf \
+            "git@github.com:"
+
+      - name: Build orchestrator
+        run: cargo build --release
+
+      - name: Build kernel (${{ inputs.device }} / ${{ matrix.mode }})
+        env:
+          # RELEASE_TOKEN has write access to the (private) kernel repos, so
+          # the zip is published there rather than on this public CI repo.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          ./target/release/kci build \
+            --device "${{ inputs.device }}" \
+            --mode "${{ matrix.mode }}" \
+            ${{ inputs.release && '--release' || '' }}

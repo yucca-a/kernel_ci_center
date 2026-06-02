@@ -1,0 +1,7 @@
+/target
+/work
+*.zip
+/.cargo
+
+# local helper scripts are not part of the project
+*.sh

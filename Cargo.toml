@@ -1,0 +1,21 @@
+[package]
+name = "kci"
+version = "0.1.0"
+edition = "2021"
+description = "Yucca kernel CI orchestrator for Samsung sm85xx/sm87xx GKI kernels"
+license = "GPL-2.0"
+
+[[bin]]
+name = "kci"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+sha2 = "0.10"
+rand = "0.8"
+
+[profile.release]
+opt-level = 2

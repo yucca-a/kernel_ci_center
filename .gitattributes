@@ -1,0 +1,7 @@
+# Keep GitHub's language bar focused on the Rust orchestrator: the YAML
+# workflow, TOML config and docs are infrastructure, not the codebase.
+*.yml   linguist-generated=true
+*.yaml  linguist-generated=true
+*.toml  linguist-vendored=true
+config/* linguist-vendored=true
+*.md    linguist-documentation=true
