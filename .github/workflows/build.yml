@@ -32,7 +32,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev zstd cpio kmod
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev zstd cpio kmod ccache
 
       - name: Configure git auth for the private kernel repos
         run: |
@@ -47,11 +47,22 @@ jobs:
       - name: Build orchestrator
         run: cargo build --release
 
+      - name: Restore ccache (per device+mode; speeds up rebuilds)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ inputs.device }}-${{ matrix.mode }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.device }}-${{ matrix.mode }}-
+
       - name: Build kernel (${{ inputs.device }} / ${{ matrix.mode }})
         env:
           # RELEASE_TOKEN has write access to the (private) kernel repos, so
           # the zip is published there rather than on this public CI repo.
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # ccache dir is cached across runs (above); the build scripts honour it.
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_MAXSIZE: 2G
         run: |
           ./target/release/kci build \
             --device "${{ inputs.device }}" \
