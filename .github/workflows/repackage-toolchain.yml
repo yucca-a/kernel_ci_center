@@ -32,20 +32,22 @@ jobs:
           echo "prebuilts root: $PRE"; ls "$PRE"
           test -x "$PRE/clang/host/linux-x86/clang-r450784e/bin/clang"
           "$PRE/clang/host/linux-x86/clang-r450784e/bin/clang" --version | head -1
-          echo "re-tar (root = prebuilts contents)..."
-          tar -C "$PRE" -czf sm8550-toolchain-clang-r450784e.tar.gz .
-          ls -lh sm8550-toolchain-clang-r450784e.tar.gz
-          echo "sha256: $(sha256sum sm8550-toolchain-clang-r450784e.tar.gz | cut -d' ' -f1)"
+          echo "re-tar with xz (root = prebuilts contents; xz keeps it under GitHub's 2 GiB asset limit)..."
+          tar -C "$PRE" -I 'xz -6 -T0' -cf sm8550-toolchain-clang-r450784e.tar.xz .
+          ls -lh sm8550-toolchain-clang-r450784e.tar.xz
+          echo "size bytes: $(stat -c%s sm8550-toolchain-clang-r450784e.tar.xz) (limit 2147483648)"
+          echo "sha256: $(sha256sum sm8550-toolchain-clang-r450784e.tar.xz | cut -d' ' -f1)"
 
       - name: Publish to yucca-a/sm8550-toolchain
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          # Drop any half-created release from a previous attempt, then create fresh.
+          gh release delete clang-r450784e -R yucca-a/sm8550-toolchain -y --cleanup-tag || true
           gh release create clang-r450784e \
-            sm8550-toolchain-clang-r450784e.tar.gz \
+            sm8550-toolchain-clang-r450784e.tar.xz \
             -R yucca-a/sm8550-toolchain \
             -t "clang-r450784e (AOSP prebuilt, repackaged)" \
-            -n "Official Google AOSP clang-r450784e prebuilts (clang + build-tools + kernel-build-tools) for kernel_samsung_sm8550 (android13-5.15). Repackaged clean on Linux from the upstream 3-part split." \
-          || gh release upload clang-r450784e sm8550-toolchain-clang-r450784e.tar.gz -R yucca-a/sm8550-toolchain --clobber
+            -n "Official Google AOSP clang-r450784e prebuilts (clang + build-tools + kernel-build-tools) for kernel_samsung_sm8550 (android13-5.15). Repackaged clean on Linux from the upstream 3-part split."
           echo "=== release ==="
           gh release view clang-r450784e -R yucca-a/sm8550-toolchain
