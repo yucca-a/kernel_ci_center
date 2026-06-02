@@ -1,0 +1,51 @@
+name: repackage-toolchain
+# One-shot: fetch the official AOSP clang-r450784e prebuilts (currently only
+# conveniently hosted as YuzakiKokuban's 3-part split, packaged on macOS),
+# repackage cleanly on Linux into a single tarball, and publish it to our own
+# yucca-a/sm8550-toolchain release so sm8550 no longer depends on the fork.
+on:
+  workflow_dispatch:
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Download + repackage clang-r450784e (clean, Linux)
+        run: |
+          set -e
+          mkdir -p dl extract
+          for p in aa ab ac; do
+            echo "downloading part_$p..."
+            curl -fL --retry 3 -o "dl/part_$p.tar.gz" \
+              "https://github.com/YuzakiKokuban/android_kernel_samsung_sm8550_S23/releases/download/toolchain/toolchain_part_$p.tar.gz"
+          done
+          echo "concatenate + extract (drops macOS xattrs)..."
+          cat dl/part_aa.tar.gz dl/part_ab.tar.gz dl/part_ac.tar.gz \
+            | tar -xz --warning=no-unknown-keyword -C extract
+          rm -rf dl
+          if [ -d extract/prebuilts ]; then PRE=extract/prebuilts; else PRE=extract; fi
+          echo "prebuilts root: $PRE"; ls "$PRE"
+          test -x "$PRE/clang/host/linux-x86/clang-r450784e/bin/clang"
+          "$PRE/clang/host/linux-x86/clang-r450784e/bin/clang" --version | head -1
+          echo "re-tar (root = prebuilts contents)..."
+          tar -C "$PRE" -czf sm8550-toolchain-clang-r450784e.tar.gz .
+          ls -lh sm8550-toolchain-clang-r450784e.tar.gz
+          echo "sha256: $(sha256sum sm8550-toolchain-clang-r450784e.tar.gz | cut -d' ' -f1)"
+
+      - name: Publish to yucca-a/sm8550-toolchain
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          gh release create clang-r450784e \
+            sm8550-toolchain-clang-r450784e.tar.gz \
+            -R yucca-a/sm8550-toolchain \
+            -t "clang-r450784e (AOSP prebuilt, repackaged)" \
+            -n "Official Google AOSP clang-r450784e prebuilts (clang + build-tools + kernel-build-tools) for kernel_samsung_sm8550 (android13-5.15). Repackaged clean on Linux from the upstream 3-part split." \
+          || gh release upload clang-r450784e sm8550-toolchain-clang-r450784e.tar.gz -R yucca-a/sm8550-toolchain --clobber
+          echo "=== release ==="
+          gh release view clang-r450784e -R yucca-a/sm8550-toolchain
