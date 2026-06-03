@@ -1,8 +1,10 @@
 name: upstream-check
-# Weekly: detect when upstream SUSFS (ShirkNeko branches) has advanced past our
-# pinned commits, and ping a tracker issue. Does NOT auto-merge — bumping SUSFS
-# needs the selinuxfs neutralisation re-verified + a rebuild. ReSukiSU is tracked
-# at build time (auto-latest), so it is reported for info only.
+# Weekly: detect when tracked upstreams have advanced past our pinned commits/blobs
+# and ping a tracker issue. Does NOT auto-merge — adopting an update needs a
+# re-vendor/re-pin + rebuild (and for SUSFS, the selinuxfs neutralisation
+# re-verified). ReSukiSU is tracked at build time (auto-latest), reported for info.
+#   - SUSFS   : ShirkNeko/susfs4ksu branch tips vs our commit pins
+#   - ReKernel: Sakion-Team/Re-Kernel LKM-Source/{rekernel.c,rekernel.h} blob vs our pins
 on:
   schedule:
     - cron: '0 6 * * 1'   # Mondays 06:00 UTC
@@ -18,7 +20,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check upstream SUSFS / ReSukiSU
+      - name: Check upstream SUSFS / ReKernel / ReSukiSU
         run: |
           set -euo pipefail
           # Our pinned SUSFS commits — keep in sync with the kernel build scripts
@@ -47,14 +49,33 @@ jobs:
                 report="${report}- SUSFS \`$br\`: compare error (skipped)"$'\n' ;;
             esac
           done
+
+          # ReKernel — vendored single-file LKM source (Sakion-Team/Re-Kernel),
+          # built-in across all three kernels (sm8650/sm8750 build/features/rekernel,
+          # sm8550 drivers/rekernel). Pin = git blob SHA of the upstream LKM-Source
+          # files we last synced; an upstream blob change == a new Re:Kernel revision.
+          REKERNEL_PIN_C=c482a2e169b0660189049f644534b1cf95600d0d
+          REKERNEL_PIN_H=9bbbb59f55dc22f322bfb45a5be6440a78301f88
+          rk_c=$(gh api "repos/Sakion-Team/Re-Kernel/contents/LKM-Source/rekernel.c" --jq '.sha' 2>/dev/null || echo error)
+          rk_h=$(gh api "repos/Sakion-Team/Re-Kernel/contents/LKM-Source/rekernel.h" --jq '.sha' 2>/dev/null || echo error)
+          rk_ver=$(gh api -H "Accept: application/vnd.github.raw" "repos/Sakion-Team/Re-Kernel/contents/LKM-Source/rekernel.c" 2>/dev/null | grep -oE 'Re:Kernel v[0-9.]+' | head -1 || true)
+          if [ "$rk_c" = "error" ] || [ "$rk_h" = "error" ]; then
+            report="${report}- ReKernel: compare error (skipped)"$'\n'
+          elif [ "$rk_c" != "$REKERNEL_PIN_C" ] || [ "$rk_h" != "$REKERNEL_PIN_H" ]; then
+            report="${report}- ReKernel \`LKM-Source\`: upstream changed (now ${rk_ver:-?}) vs pin \`${REKERNEL_PIN_C:0:12}\` — **UPDATE AVAILABLE**"$'\n'
+            updated=1
+          else
+            report="${report}- ReKernel \`LKM-Source\`: pin current (${rk_ver:-v9.2})"$'\n'
+          fi
+
           ksu=$(git ls-remote https://github.com/ReSukiSU/ReSukiSU.git refs/heads/main | cut -f1)
           report="${report}- ReSukiSU \`main\`: \`${ksu:0:12}\` (tracked at build time — auto-latest)"$'\n'
           printf '%s\n' "$report"
 
-          title="🔔 Upstream SUSFS update available"
+          title="🔔 Upstream update available (SUSFS / ReKernel)"
           existing=$(gh issue list -R "${{ github.repository }}" --state open --search "in:title $title" --json number --jq '.[0].number // empty' || true)
           if [ "$updated" = "1" ]; then
-            body=$(printf 'Automated weekly upstream check (%s UTC).\n\n%s\nTo adopt an update: bump SUSFS_PIN in the kernel build scripts, re-verify the\nselinuxfs neutralisation (ReSukiSU drops the fake-selinux-status symbols), then\nrebuild and flash-test.' "$(date -u +%F)" "$report")
+            body=$(printf 'Automated weekly upstream check (%s UTC).\n\n%s\nTo adopt an update:\n- SUSFS: bump SUSFS_PIN in the kernel build scripts, re-verify the selinuxfs neutralisation (ReSukiSU drops the fake-selinux-status symbols), then rebuild and flash-test.\n- ReKernel: re-vendor LKM-Source/rekernel.{c,h} into build/features/rekernel (sm8650/sm8750) + drivers/rekernel (sm8550), bump REKERNEL_PIN_C/H in this workflow, then rebuild.' "$(date -u +%F)" "$report")
             if [ -n "$existing" ]; then
               gh issue edit "$existing" -R "${{ github.repository }}" --body "$body"
               echo "Updated tracker issue #$existing"
@@ -62,6 +83,6 @@ jobs:
               gh issue create -R "${{ github.repository }}" --title "$title" --body "$body"
             fi
           else
-            echo "No SUSFS updates beyond our pins."
-            [ -n "$existing" ] && gh issue close "$existing" -R "${{ github.repository }}" -c "All SUSFS branches back in sync with our pins." || true
+            echo "No SUSFS/ReKernel updates beyond our pins."
+            [ -n "$existing" ] && gh issue close "$existing" -R "${{ github.repository }}" -c "All tracked upstreams back in sync with our pins." || true
           fi
