@@ -8,6 +8,11 @@ on:
         type: choice
         options: [sm8750, sm8550, sm8650]
         default: sm8750
+      mode:
+        description: "Which build mode(s) to run (susfs-only changes need resukisu only)"
+        type: choice
+        options: [both, resukisu, lkm]
+        default: both
       release:
         description: "Publish zips as a GitHub Release"
         type: boolean
@@ -19,7 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [resukisu, lkm]   # resukisu + lkm matrix
+        # mode=both -> resukisu+lkm; mode=resukisu|lkm -> just that one (skip the redundant build)
+        mode: ${{ inputs.mode == 'both' && fromJSON('["resukisu","lkm"]') || fromJSON(format('["{0}"]', inputs.mode)) }}
     steps:
       - name: Checkout CI center
         uses: actions/checkout@v4
