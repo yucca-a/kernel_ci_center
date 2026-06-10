@@ -22,15 +22,24 @@ pub fn upload(dev: &Device, mode: &str, art: &Artifact) -> Result<()> {
     let here = Path::new(".");
 
     println!("== releasing to {slug} :: tag {tag} ==");
-    let created = crate::util::run(
-        "gh",
-        &["release", "create", &tag, &zip, "-R", &slug, "-t", &title, "-n", &notes],
-        here,
-        &[],
-    );
-    if created.is_err() {
-        crate::util::run("gh", &["release", "upload", &tag, &zip, "-R", &slug, "--clobber"], here, &[])?;
-    }
+    // The releases API intermittently returns HTTP 401 / rate-limits when
+    // several device+mode jobs publish at once; retry with backoff so a
+    // transient failure no longer fails the build (it used to need a manual
+    // serial re-run). Each attempt creates the release, or falls back to
+    // uploading/clobbering the asset if the tag already exists.
+    crate::util::retry(5, 5, &format!("release {slug} {tag}"), || {
+        if crate::util::run(
+            "gh",
+            &["release", "create", &tag, &zip, "-R", &slug, "-t", &title, "-n", &notes],
+            here,
+            &[],
+        )
+        .is_ok()
+        {
+            return Ok(());
+        }
+        crate::util::run("gh", &["release", "upload", &tag, &zip, "-R", &slug, "--clobber"], here, &[])
+    })?;
     println!("== released :: {slug} {tag} ==");
     Ok(())
 }
