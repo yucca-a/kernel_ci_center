@@ -66,7 +66,13 @@ fn main() -> Result<()> {
             }
             println!("kmi_generation default = {}", cfg.defaults.kmi_generation);
         }
-        Cmd::Build { device, mode, release, dry_run, work } => {
+        Cmd::Build {
+            device,
+            mode,
+            release,
+            dry_run,
+            work,
+        } => {
             pipeline::run_build(&cfg, &device, &mode, &work, release, dry_run)?;
         }
     }

@@ -74,11 +74,9 @@ pub fn list_zips(dir: &Path) -> Vec<PathBuf> {
 
 /// Newest *.zip under `dir` by mtime, if any.
 pub fn newest_zip(dir: &Path) -> Option<PathBuf> {
-    list_zips(dir)
-        .into_iter()
-        .max_by_key(|p| {
-            std::fs::metadata(p)
-                .and_then(|m| m.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH)
-        })
+    list_zips(dir).into_iter().max_by_key(|p| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    })
 }

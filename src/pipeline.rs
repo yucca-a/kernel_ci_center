@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
-use rand::Rng;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::config::{Config, Device};
 use crate::util::{list_zips, newest_zip, run, sha256_file};
@@ -9,7 +9,7 @@ use crate::util::{list_zips, newest_zip, run, sha256_file};
 pub struct Artifact {
     pub zip: PathBuf,
     pub sha256: String,
-    pub build_num: u64,
+    pub build_id: String,
 }
 
 pub fn run_build(
@@ -27,14 +27,11 @@ pub fn run_build(
         bail!("device `{device_id}` is disabled in config (its source is not on GitHub yet)");
     }
     if !dev.supports(mode) {
-        bail!("device `{device_id}` does not support mode `{mode}` (modes: {:?})", dev.modes);
+        bail!(
+            "device `{device_id}` does not support mode `{mode}` (modes: {:?})",
+            dev.modes
+        );
     }
-
-    let build_num: u64 = rand::thread_rng().gen_range(100_000_000..1_000_000_000);
-    println!(
-        "== kci build :: {} ({}) :: mode={} :: build={} ==",
-        dev.id, dev.name, mode, build_num
-    );
 
     // Absolute workdir: build.sh runs with cwd = srcdir, so any TOOLCHAIN_DIR /
     // ANYKERNEL_DIR we hand it must be absolute, not relative to our cwd.
@@ -51,20 +48,29 @@ pub fn run_build(
     let artifacts = workdir.clone();
 
     if dry_run {
+        let build_id = git_short_commit(&srcdir).unwrap_or_else(|_| "<source-commit>".to_string());
         println!("[dry-run] plan:");
-        println!("  1. sync source : {} @ {} -> {}", dev.repo, dev.branch, srcdir.display());
+        println!(
+            "  1. sync source : {} @ {} -> {}",
+            dev.repo,
+            dev.branch,
+            srcdir.display()
+        );
         println!("  2. toolchain   : {}", describe_toolchain(dev));
         match &dev.anykernel_repo {
             Some(ak) => println!("  3. anykernel   : {} @ {}", ak, dev.anykernel_branch),
             None => println!("  3. anykernel   : (build script default)"),
         }
         println!(
-            "  4. build       : bash {} {}  [env MODE,TOOLCHAIN_DIR,PACK=1,BUILD_NUM={}]",
-            dev.build_script, mode, build_num
+            "  4. build       : bash {} {}  [env MODE,TOOLCHAIN_DIR,PACK=1,BUILD_ID={}]",
+            dev.build_script, mode, build_id
         );
         println!("  5. collect zip : newest *.zip in {}", artifacts.display());
         if do_release {
-            println!("  6. release     : gh release create {}-{}-{}", dev.id, mode, build_num);
+            println!(
+                "  6. release     : gh release create {}-{}-{}",
+                dev.id, mode, build_id
+            );
         }
         return Ok(());
     }
@@ -73,11 +79,19 @@ pub fn run_build(
 
     // 1. source
     sync_repo(&dev.repo, &dev.branch, &srcdir)?;
+    let build_id = git_short_commit(&srcdir)?;
+    println!(
+        "== kci build :: {} ({}) :: mode={} :: build={} ==",
+        dev.id, dev.name, mode, build_id
+    );
 
     // 2. toolchain
     let toolchain_dir = ensure_toolchain(dev, &workdir)?;
     if !toolchain_dir.exists() {
-        bail!("resolved toolchain dir does not exist: {}", toolchain_dir.display());
+        bail!(
+            "resolved toolchain dir does not exist: {}",
+            toolchain_dir.display()
+        );
     }
 
     // 3. anykernel (optional)
@@ -91,14 +105,13 @@ pub fn run_build(
     };
 
     // 4. build (kernel repo owns the feature application + make via its build_script)
-    let bn = build_num.to_string();
     let tc = toolchain_dir.to_string_lossy().into_owned();
     let mut envs: Vec<(&str, &str)> = vec![
         ("MODE", mode),
         ("PACK", "1"),
-        ("BUILD_NUM", bn.as_str()),
         ("TOOLCHAIN_DIR", tc.as_str()),
     ];
+    envs.extend(build_identity_env(&build_id));
     let ak_s;
     if let Some(akd) = &anykernel_dir {
         ak_s = akd.to_string_lossy().into_owned();
@@ -117,7 +130,11 @@ pub fn run_build(
         .or_else(|| newest_zip(&artifacts))
         .context("no output .zip found after build (is PACK honored by the build script?)")?;
     let sha = sha256_file(&zip)?;
-    let art = Artifact { zip, sha256: sha, build_num };
+    let art = Artifact {
+        zip,
+        sha256: sha,
+        build_id,
+    };
     println!("== artifact :: {} ==", art.zip.display());
     println!("   sha256   :: {}", art.sha256);
 
@@ -138,16 +155,88 @@ fn describe_toolchain(dev: &Device) -> String {
     }
 }
 
+fn git_short_commit(repo: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo.to_string_lossy(),
+            "rev-parse",
+            "--short=7",
+            "HEAD",
+        ])
+        .output()
+        .with_context(|| format!("reading git commit id in {}", repo.display()))?;
+    if !output.status.success() {
+        bail!("cannot read git commit id in {}", repo.display());
+    }
+    let id = String::from_utf8(output.stdout)
+        .context("git rev-parse output was not utf-8")?
+        .trim()
+        .to_string();
+    if id.is_empty() {
+        bail!("git commit id was empty in {}", repo.display());
+    }
+    Ok(id)
+}
+
+fn build_identity_env(build_id: &str) -> Vec<(&'static str, &str)> {
+    vec![("BUILD_ID", build_id), ("BUILD_NUM", build_id)]
+}
+
 fn sync_repo(repo: &str, branch: &str, dest: &Path) -> Result<()> {
     let here = Path::new(".");
     let dest_s = dest.to_string_lossy().into_owned();
     if dest.join(".git").exists() {
-        run("git", &["-C", &dest_s, "fetch", "--depth", "1", "origin", branch], here, &[])?;
-        run("git", &["-C", &dest_s, "checkout", "-f", branch], here, &[])
-            .or_else(|_| run("git", &["-C", &dest_s, "checkout", "-f", "-B", branch, &format!("origin/{branch}")], here, &[]))?;
-        run("git", &["-C", &dest_s, "reset", "--hard", &format!("origin/{branch}")], here, &[])?;
+        run(
+            "git",
+            &["-C", &dest_s, "fetch", "--depth", "1", "origin", branch],
+            here,
+            &[],
+        )?;
+        run("git", &["-C", &dest_s, "checkout", "-f", branch], here, &[]).or_else(|_| {
+            run(
+                "git",
+                &[
+                    "-C",
+                    &dest_s,
+                    "checkout",
+                    "-f",
+                    "-B",
+                    branch,
+                    &format!("origin/{branch}"),
+                ],
+                here,
+                &[],
+            )
+        })?;
+        run(
+            "git",
+            &[
+                "-C",
+                &dest_s,
+                "reset",
+                "--hard",
+                &format!("origin/{branch}"),
+            ],
+            here,
+            &[],
+        )?;
     } else {
-        run("git", &["clone", "--depth", "1", "--branch", branch, "--single-branch", repo, &dest_s], here, &[])?;
+        run(
+            "git",
+            &[
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                branch,
+                "--single-branch",
+                repo,
+                &dest_s,
+            ],
+            here,
+            &[],
+        )?;
     }
     Ok(())
 }
@@ -180,4 +269,17 @@ fn ensure_toolchain(dev: &Device, workdir: &Path) -> Result<PathBuf> {
         Some(s) => root.join(s),
         None => root,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_env_passes_commit_id_under_new_and_legacy_names() {
+        let envs = build_identity_env("d4985ff");
+
+        assert!(envs.contains(&("BUILD_ID", "d4985ff")));
+        assert!(envs.contains(&("BUILD_NUM", "d4985ff")));
+    }
 }

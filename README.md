@@ -30,9 +30,12 @@ cargo run --release -- build --device sm8750 --mode resukisu
 cargo run --release -- build --device sm8750 --mode lkm --release
 ```
 
-The CLI generates a random `abogki<number>` build id per run and passes it
-through to the kernel `build.sh` (which bakes it into the version string
-`6.6.138-android15-8-YuccaA-abogki<number>-4k`).
+The CLI uses the built kernel repo's short commit id as the build id and
+passes it through to the kernel `build.sh`. Release tags are stable and
+source-addressable, for example `sm8750-resukisu-d4985ff`, while the zip asset
+keeps the user-facing naming scheme such as `SM8750_resukisu_6.6.138_0614.zip`.
+The same id is baked into the kernel version string, for example
+`6.6.138-android15-8-YuccaA-d4985ff-4k`.
 
 ## Cloud builds (GitHub Actions)
 
